@@ -1,6 +1,7 @@
 package freemap.opentrail;
 
 
+
 import android.os.Bundle;
 import android.preference.PreferenceActivity;
 

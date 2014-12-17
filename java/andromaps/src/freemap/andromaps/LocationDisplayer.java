@@ -4,83 +4,71 @@ package freemap.andromaps;
 // This or its subclasses (e.g. DataDisplayer in opentrail) would collect together all necessary overlays
 // and display data on them
 
+/*
 import org.mapsforge.android.maps.MapView;
 import org.mapsforge.android.maps.overlay.ArrayItemizedOverlay;
 import org.mapsforge.android.maps.overlay.ItemizedOverlay;
 import org.mapsforge.core.GeoPoint;
 import org.mapsforge.android.maps.overlay.OverlayItem;
 
-
+*/
 
 import android.widget.Toast;
 import android.graphics.drawable.Drawable;
 import android.content.Context;
 
 
+import org.mapsforge.core.model.LatLong;
+import org.mapsforge.map.layer.overlay.Marker;
+import org.mapsforge.map.view.MapView;
+
 public class LocationDisplayer implements MapLocationProcessorWithListener.LocationDisplayer {
-	protected MapView mapView;
-	protected ArrayItemizedOverlay overlay;
+	
+
 	protected Context ctx;
 	protected Drawable locationIcon;
-	protected OverlayItem myLocOverlayItem;
+	protected Marker myLocOverlayItem;
+	protected MapView mv;
+	protected boolean markerShowing; // to prevent exceptions when marker added twice
 
-	public LocationDisplayer(Context ctx, MapView mapView,  Drawable locationIcon)
+	public LocationDisplayer(Context ctx, MapView mv,  Drawable locationIcon)
 	{
-		this.mapView = mapView;
+		this.mv = mv;
 		this.ctx = ctx;
 		this.locationIcon = locationIcon;
+	}
+	
+	
+	
+	public void setLocationMarker(LatLong p)
+	{
+
+		myLocOverlayItem = MapsforgeUtil.makeMarker(locationIcon, p);
 		
-		
-		overlay = new ArrayItemizedOverlay(locationIcon)
-    	{
-    		protected boolean onTap(int index)
-    		{
-    			OverlayItem item = this.createItem(index); // !!! http://code.google.com/p/mapsforge/issues/detail?id=105
-    			toast(item.getSnippet());
-    			return true;
-    		}
-    		/* onLongPress gives exception, it appears that another thread is created which means that the toast/alert dialog
-    		 * cannot be displayed as it is not the GUI thread
-    		protected boolean onLongPress(int index)
-    		{
-    			//Toast.makeText(OpenTrail.this, "Long press on index: " + index, Toast.LENGTH_SHORT).show();
-    			new AlertDialog.Builder(OpenTrail.this).setPositiveButton("OK",null).
-					setMessage("longpress " + index).setCancelable(false).show();
-    			return true;
-    		}
-    		*/
-    	};
-    
-    	mapView.getOverlays().add(overlay);	
 	}
 	
-	protected void toast(String text)
+	public void addLocationMarker()
 	{
-		Toast.makeText(ctx,text,Toast.LENGTH_SHORT).show();
+		if(mv!=null && myLocOverlayItem!=null && !markerShowing)
+		{
+			mv.getLayerManager().getLayers().add(myLocOverlayItem);
+			markerShowing=true;
+		}
 	}
 	
-	public void addLocationMarker(GeoPoint p)
+	public void moveLocationMarker(LatLong p)
 	{
-		myLocOverlayItem = new OverlayItem(p,"My location","My location",
-					ItemizedOverlay.boundCenterBottom(locationIcon));//,personIcon);
-		showLocationMarker();
+		if(myLocOverlayItem!=null)
+			myLocOverlayItem.setLatLong(p);
 	}
 	
-	public void showLocationMarker()
+	public void removeLocationMarker()
 	{
-		if(overlay!=null)
-			overlay.addItem(myLocOverlayItem);
-	}
-	
-	public void moveLocationMarker(GeoPoint p)
-	{
-		myLocOverlayItem.setPoint(p);
-	}
-	
-	public void hideLocationMarker()
-	{
-		if(overlay!=null)
-			overlay.removeItem(myLocOverlayItem);
+		if(mv!=null && myLocOverlayItem!=null && markerShowing)
+		{
+			mv.getLayerManager().getLayers().remove(myLocOverlayItem);
+			markerShowing=false;
+		}
 	}	
 	
 	public boolean isLocationMarker()

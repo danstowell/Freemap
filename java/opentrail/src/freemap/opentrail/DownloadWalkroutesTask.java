@@ -13,16 +13,16 @@ import android.util.Log;
 import android.content.Context;
 
 import freemap.andromaps.DataCallbackTask;
-import org.mapsforge.core.GeoPoint;
+import org.mapsforge.core.model.LatLong;
 
 
 public class DownloadWalkroutesTask extends DataCallbackTask<Void,Void> {
 
 
-	GeoPoint location;
+	LatLong location;
 	
 	
-	public DownloadWalkroutesTask(Context ctx, DataReceiver receiver, GeoPoint location)
+	public DownloadWalkroutesTask(Context ctx, DataReceiver receiver, LatLong location)
 	{
 		super(ctx,receiver);
 		setDialogDetails("Downloading...","Downloading walk routes...");
@@ -37,9 +37,9 @@ public class DownloadWalkroutesTask extends DataCallbackTask<Void,Void> {
 		{
 			
 				String url = "http://www.free-map.org.uk/0.6/ws/wr.php?action=getByRadius&format=gpx&radius=20&lat="
-					+ location.getLatitude()
+					+ location.latitude
 					+ "&lon="
-					+ location.getLongitude();
+					+ location.longitude;
 				Log.d("OpenTrail","URL=" + url);
 				WebXMLSource xmlsource = new WebXMLSource(url,new WalkroutesHandler());
 				setData((ArrayList<Walkroute>) xmlsource.getData());

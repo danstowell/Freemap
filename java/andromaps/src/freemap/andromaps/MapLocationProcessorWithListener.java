@@ -1,17 +1,14 @@
 package freemap.andromaps;
 
 
-import org.mapsforge.core.GeoPoint;
+
 
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
-import android.location.LocationProvider;
-import android.os.Bundle;
-import android.graphics.drawable.Drawable;
+
 import android.content.Context;
-import android.util.Log;
-import android.widget.Toast;
+
 
 
 

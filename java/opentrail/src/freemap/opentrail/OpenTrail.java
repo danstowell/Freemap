@@ -1,27 +1,45 @@
 package freemap.opentrail;
 
-// Credits for icons
-// res/drawable/person.png is taken from osmdroid, cropped
-// res/drawable/annotation.png is modified from the standard OSM viewpoint icon.
+// !!! check that tile layer is not null before trying to do a requestRedraw()
 
+import android.app.Activity;
 import android.os.Bundle;
 import android.os.Environment;
+import android.app.AlertDialog;
+import android.graphics.drawable.Drawable;
+import android.widget.Toast;
+
+import org.mapsforge.map.android.view.MapView;
+import org.mapsforge.map.layer.renderer.TileRendererLayer;
+import org.mapsforge.core.model.LatLong;
+import org.mapsforge.map.android.graphics.AndroidGraphicFactory;
+import org.mapsforge.map.android.util.AndroidUtil;
+import org.mapsforge.map.layer.cache.TileCache;
+import org.mapsforge.map.rendertheme.ExternalRenderTheme;
+import org.mapsforge.map.android.graphics.AndroidResourceBitmap;
+import org.mapsforge.map.layer.overlay.Marker;
+import org.mapsforge.map.model.MapViewPosition;
+
+
+
+
+import java.io.File;
+import java.io.FileNotFoundException;
+
+// FROM EXISTING OPENTRAIL
+
 import android.preference.PreferenceManager;
 import android.content.Context;
 
-import java.io.File;
-import org.mapsforge.android.maps.MapActivity;
-import org.mapsforge.android.maps.MapView;
-import org.mapsforge.core.GeoPoint;
-import android.app.AlertDialog;
+
 import java.io.IOException;
 import android.util.Log;
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
 
-import java.io.FileNotFoundException;
+import java.util.ArrayList;
+
+
+
 
 
 import android.content.Intent;
@@ -33,13 +51,12 @@ import android.content.ComponentName;
 import android.view.MenuItem;
 import android.view.Menu;
 import android.view.MenuInflater;
-import android.view.View;
-import android.view.MotionEvent;
-import android.widget.Toast;
+
+
 
 
 import android.location.Location;
-import android.os.Vibrator;
+
 import android.os.AsyncTask;
 import android.location.LocationManager;
 import android.content.IntentFilter;
@@ -47,10 +64,8 @@ import android.net.Uri;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
 
-import org.mapsforge.android.maps.overlay.OverlayItem;
-import org.mapsforge.android.maps.overlay.ItemizedOverlay;
 
-import android.graphics.drawable.Drawable;
+
 import android.os.IBinder;
 import android.app.NotificationManager;
 import android.app.Notification;
@@ -62,7 +77,7 @@ import freemap.data.Annotation;
 import freemap.data.POI;
 import freemap.data.Point;
 import freemap.data.Walkroute;
-import freemap.data.TrackPoint;
+
 import freemap.datasource.FreemapDataHandler;
 import freemap.datasource.FreemapDataset;
 import freemap.datasource.FreemapFileFormatter;
@@ -79,30 +94,23 @@ import freemap.andromaps.DownloadTextFilesTask;
 import freemap.andromaps.HTTPUploadTask;
 import freemap.andromaps.HTTPCommunicationTask;
 import freemap.andromaps.DialogUtils;
+import freemap.andromaps.MapsforgeUtil;
+
 
 import freemap.proj.OSGBProjection;
-import freemap.proj.Proj4ProjectionFactory;
+
 
 import org.apache.http.NameValuePair;
 import org.apache.http.message.BasicNameValuePair;
+// END
 
-/*df
-References to this
-mapView
-alertDisplayMgr
-mapLocationProcessor
-tasks
 
-dataDisplayer: mapView
-*/
 
-// key for ACRA: dGZ6RDJDaWxCMTlfcEJqYTJDRFEtTmc6MQ
+public class OpenTrail extends Activity implements AlertDisplay, MapLocationProcessor.LocationReceiver,
+			DataReceiver, HTTPCommunicationTask.Callback
+{
 
-public class OpenTrail extends MapActivity implements 
-						AlertDisplay, MapLocationProcessor.LocationReceiver,
-						DataReceiver, HTTPCommunicationTask.Callback,
-						MapView.OnTouchListener {
-	
+	// FROM EXISTING OPENTRAIL
 	String mapFile, sdcard, styleFile;
 	MapView mapView;
 	MapLocationProcessorBR mapLocationProcessor;
@@ -122,7 +130,7 @@ public class OpenTrail extends MapActivity implements
 	AnnotationCacheManager annCacheMgr;
 	
 	
-	DataDisplayer dataDisplayer;
+	OverlayHandler overlayHandler;
 	
 	DataCallbackTask<?,?> dataTask;
 	HTTPCommunicationTask dfTask;
@@ -137,11 +145,11 @@ public class OpenTrail extends MapActivity implements
 	
 	
 	
-	GeoPoint initPos;
+	LatLong initPos;
 	ServiceConnection gpsServiceConn;
 	GPSService gpsService;
 	WalkrouteCacheManager wrCacheMgr;
-	GeoPoint location;
+	LatLong location;
 	
 	freemap.data.Projection proj;
 	
@@ -155,17 +163,35 @@ public class OpenTrail extends MapActivity implements
 		FreemapDataset pois;
 		ArrayList<Walkroute> walkroutes;
 	}
+	// END
 	
-    /** Called when the activity is first created. */
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-  
-    	
- 
-    	
-        super.onCreate(savedInstanceState);
-        
-        try
+	
+	TileCache tileCache;
+	TileRendererLayer renderLayer;
+	ExternalRenderTheme renderTheme;
+	
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		
+		AndroidGraphicFactory.createInstance(this.getApplication());
+		 
+		mapView = new MapView(this);
+	
+		setContentView(mapView);
+		mapView.setBuiltInZoomControls(true);
+		mapView.setClickable(true);
+	
+		
+		
+		// Used to cache tiles to avoid re-rendering
+		tileCache = AndroidUtil.createTileCache
+					(this, "mapcache",
+						mapView.getModel().displayModel.getTileSize(),
+						1f,
+						mapView.getModel().frameBufferModel.getOverdrawFactor());
+		try
         {
         	sdcard = Environment.getExternalStorageDirectory().getAbsolutePath() ;
         	//sdcard="/mnt/extSdCard";
@@ -175,13 +201,10 @@ public class OpenTrail extends MapActivity implements
         
         	mapFile = null;
         	
-        	mapView = new MapView(this); 
-        	mapView.setClickable(true);
-        	mapView.setBuiltInZoomControls(true);
-        	mapView.setOnTouchListener(this);
-
-        	Proj4ProjectionFactory factory=new Proj4ProjectionFactory();
+       	
+        	
         	String projString="epsg:27700";
+        	//Proj4ProjectionFactory factory=new Proj4ProjectionFactory();
     		this.proj = new OSGBProjection(); // factory.generate(projString);
         
     		SharedPreferences p = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
@@ -209,7 +232,7 @@ public class OpenTrail extends MapActivity implements
         	
         	
         	
-        	dataDisplayer = new DataDisplayer(getApplicationContext(),mapView,
+        	overlayHandler = new OverlayHandler(getApplicationContext(),mapView,
 					getResources().getDrawable(R.drawable.person),
 					getResources().getDrawable(R.drawable.marker),
 					getResources().getDrawable(R.drawable.annotation),
@@ -219,26 +242,24 @@ public class OpenTrail extends MapActivity implements
         	
         	if(savedInstanceState!=null)
         	{
-        		initPos = new GeoPoint(savedInstanceState.getDouble("lat"),
+        		initPos = new LatLong(savedInstanceState.getDouble("lat"),
         								savedInstanceState.getDouble("lon"));
         		readZoom = savedInstanceState.getInt("zoom");
         		
-       			mapView.getController().setZoom(readZoom);
+       			mapView.getModel().mapViewPosition.setZoomLevel((byte)readZoom);
        			mapFile = savedInstanceState.getString("mapFile");
        			walkrouteIdx = savedInstanceState.getInt("walkrouteIdx");
        			recordingWalkroute = savedInstanceState.getBoolean("recordingWalkroute");
        			waitingForNewPOIData = savedInstanceState.getBoolean("waitingForNewPOIData");
-       			//loadAnnotationOverlay();
-       			
-       			
        		}   	
         	else if ((prefs=PreferenceManager.getDefaultSharedPreferences(getApplicationContext()))!=null)
         	{
         	    
-        		initPos = new GeoPoint(prefs.getFloat("lat",51.05f),
+        		initPos = new LatLong(prefs.getFloat("lat",51.05f),
         							prefs.getFloat("lon", -0.72f));
-        		mapFile = prefs.getString("mapFile",null);
-        		
+        		//mapFile = prefs.getString("mapFile",null);
+        		mapFile = prefs.getString("mapFile", sdcard+"/opentrail/su.map");
+        		Log.d("newmapsforge", "mapFile=" + mapFile);
         	
         		readZoom = prefs.getInt("zoom", -1);
         		recordingWalkroute = prefs.getBoolean("recordingWalkroute", false);    
@@ -246,10 +267,9 @@ public class OpenTrail extends MapActivity implements
         		
         		if(readZoom>=0)
         		{
-        		   
-        		
-        			mapView.getController().setZoom(readZoom);
+        			mapView.getModel().mapViewPosition.setZoomLevel((byte)readZoom);
         		}
+        		
         	}
         	
         	
@@ -262,7 +282,7 @@ public class OpenTrail extends MapActivity implements
     		poiDeliverer=new CachedTileDeliverer("poi",ds, new XMLDataInterpreter
     				(new FreemapDataHandler()),5000,5000,this.proj,cachedir);
     		poiDeliverer.setCache(true);
-    		poiDeliverer.setReprojectCachedData(true); // aargh this was false for ages WHY?????
+    		poiDeliverer.setReprojectCachedData(true);
     		
     		
     		if (Shared.pois==null)
@@ -280,7 +300,7 @@ public class OpenTrail extends MapActivity implements
     		wrCacheMgr = new WalkrouteCacheManager(sdcard+"/opentrail/walkroutes/");
     	
     		
-    		mapLocationProcessor=new MapLocationProcessorBR(this,this,dataDisplayer);
+    		mapLocationProcessor=new MapLocationProcessorBR(this,this,overlayHandler);
     		filter = new IntentFilter();
     		filter.addAction("freemap.opentrail.providerenabled");
     		filter.addAction("freemap.opentrail.statuschanged");
@@ -339,20 +359,45 @@ public class OpenTrail extends MapActivity implements
          		}
          	}
         	
+        	Log.d("newmapsforge", "downloading style file");
         	downloadStyleFile();
         	registerReceiver(mapLocationProcessor,filter);
         }
         catch(Exception e)
         {
-        	DialogUtils.showDialog(this,"Error:" + e.getMessage());
+        	DialogUtils.showDialog(this,"Error:" + e.getMessage() + " " + e);
+        	Log.d("newmapsforge", e.getStackTrace().toString());
+        	e.printStackTrace();
+        	
         }
       
-    }
-    
-    public void onStart()
-    {
-    	super.onStart();
-     	SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
+		
+	}
+	
+	protected void onStart()
+	{
+		super.onStart();
+		android.util.Log.d("newmapsforge", "onStart()");
+	
+		// newmapsforge - setup tile renderer layer
+		/* remove this - was just done for testing
+		mapView.getModel().mapViewPosition.setCenter(new LatLong(51.05, -0.72));
+		mapView.getModel().mapViewPosition.setZoomLevel((byte)14);
+		*/
+		
+		// renderer layer. can also have marker layers etc. must associate with cache
+				// false= transparency
+				// true = render labels
+		android.util.Log.d("newmapsforge", "onStart(): setting up tile renderer layer");
+		renderLayer = getTileRendererLayer
+						(tileCache, mapView.getModel().mapViewPosition, false, true,
+							AndroidGraphicFactory.INSTANCE);
+		
+		
+		
+		
+		
+		SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getBaseContext());
      	boolean oldPrefAnnotations = prefAnnotations;
      	
      	prefGPSTracking = prefs.getBoolean("prefGPSTracking", true);
@@ -362,62 +407,93 @@ public class OpenTrail extends MapActivity implements
      	
      	
      	if(Shared.walkroutes!=null && walkrouteIdx > -1 && walkrouteIdx < Shared.walkroutes.size())
-		 	dataDisplayer.showWalkroute(Shared.walkroutes.get(walkrouteIdx));
+		 	overlayHandler.setWalkroute(Shared.walkroutes.get(walkrouteIdx));
 		 	
-     	if(dataDisplayer==null)
-     	    Log.d("OpenTrail","WARNING data displayer is null");
+     	if(overlayHandler==null)
+     	    Log.d("newmapsforge","WARNING data displayer is null");
      	
-     	if(prefAnnotations==false && oldPrefAnnotations==true)
-     		dataDisplayer.hideAnnotations();
-     		
+     	
      
      	
-     	else if (prefAnnotations==true && oldPrefAnnotations==false)
-     		dataDisplayer.showAnnotations();
+     	if (prefAnnotations==true)
+     		loadAnnotationOverlay();
+     		
      	
-     	if(mapSetup)
+     
+     	try
      	{
-     	    
-     	    mapView.invalidate();
-     	    dataDisplayer.requestRedraw();
-     	}
-     	
-    	//services can be both started and bound
-    	//http://developer.android.com/guide/components/bound-services.html
-    	//we need this as the activity requires data from the service, but we
-    	//also need the service to keep going once the activity finishes
-    	Intent startServiceIntent = new Intent(this,GPSService.class);
-    	startServiceIntent.putExtra("wrCacheLoc",sdcard+"/opentrail/walkroutes/");
-    	startServiceIntent.putExtra("recordingWalkroute", recordingWalkroute);
-    	startService(startServiceIntent);   	
-    }
+     		Log.d("newmapsforge", "setting render theme");
+     		renderTheme = new ExternalRenderTheme(new File(sdcard + "/opentrail/freemap_v4.xml"));
+     		renderLayer.setXmlRenderTheme(renderTheme);
+     		Log.d("newmapsforge", "adding render layer to layers");
+     		
     
-    public void onStop()
-    {
-    	super.onStop();
-    	
-    	
-    	
-    	
-    	
-    	//this.location=null;
-    	
-    	
+     	
+     		// check mapfile exists
+     		File mf = mapFile==null ? null:new File(mapFile);
+     		if(!mf.exists())
+     			mapFile=null;
+     		
+     		if(mapSetup)
+     		{
+     			Log.d("newmapsforge", "map setup : mapfile = " + mapFile);
+     			// redrawing bombs with no map file. setupMap() will do it otherwise
+     		 	
+         		// crashes if no mapfile
+         		overlayHandler.addTileRendererLayer(renderLayer);
+     			renderLayer.setMapFile(new File(mapFile));
+     
+     	
+     
+     			//mapView.invalidate();
+     	    
+     	    
+     			overlayHandler.addAllOverlays();
+     			Log.d("newmapsforge", "mapsetup: requesting redeaw done");
+     		}
+     		else if(mapFile!=null)
+     		{
+     			Log.d("newmapsforge", "setting up map with a file of " + mapFile);
+     			setupMap(mf);
+     		}
+     		//services can be both started and bound
+     		//http://developer.android.com/guide/components/bound-services.html
+     		//we need this as the activity requires data from the service, but we
+     		//also need the service to keep going once the activity finishes
+     		Intent startServiceIntent = new Intent(this,GPSService.class);
+     		startServiceIntent.putExtra("wrCacheLoc",sdcard+"/opentrail/walkroutes/");
+     		startServiceIntent.putExtra("recordingWalkroute", recordingWalkroute);
+     		startService(startServiceIntent);
+     	}
+     	catch(FileNotFoundException e) // should never happen
+     	{
+     		DialogUtils.showDialog(this, "can't find style file!");
+     	}
+	}
+	
+	protected void onStop()
+	{
+		super.onStop();    	
     	Intent stopIfNotLoggingBroadcast = new Intent("freemap.opentrail.stopifnotlogging");
     	sendBroadcast(stopIfNotLoggingBroadcast);
+    	if(mapSetup)
+    	{
+    		overlayHandler.removeAllOverlays(false);
+	
+    		renderLayer.onDestroy();
+    	}
+	}
     	
-    }
-    
-    public void onDestroy()
-    {
-    	
-    	super.onDestroy();
-    	
-    	unregisterReceiver(mapLocationProcessor);
+	
+	protected void onDestroy()
+	{
+		super.onDestroy();
+		
+		unregisterReceiver(mapLocationProcessor);
     	unbindService(gpsServiceConn);
     	
     	
-    	dataDisplayer.cleanup();
+    	overlayHandler.cleanup();
     	//mapLocationProcessor=null;
     	//alertDisplayMgr=null;
     	// 230213 no need for this and causes crashes dataDisplayer=null;
@@ -426,62 +502,92 @@ public class OpenTrail extends MapActivity implements
     	SharedPreferences.Editor editor = settings.edit();
     	
     	
-    	editor.putFloat("lat",(float)mapView.getMapPosition().getMapCenter().getLatitude());
-    	editor.putFloat("lon",(float)mapView.getMapPosition().getMapCenter().getLongitude());
-    	editor.putInt("zoom", mapView.getMapPosition().getZoomLevel());
+    	editor.putFloat("lat",(float)mapView.getModel().mapViewPosition.getCenter().latitude);
+    	editor.putFloat("lon",(float)mapView.getModel().mapViewPosition.getCenter().longitude);
+    	editor.putInt("zoom", mapView.getModel().mapViewPosition.getZoomLevel());
     	editor.putBoolean("recordingWalkroute", recordingWalkroute);
     	editor.putBoolean("waitingForNewPOIData",waitingForNewPOIData);
     	editor.putString("mapFile",mapFile);
     	editor.commit();
     	// 230213 no need for this and causes crashes mapView=null;
     	
-    }
-    
+    		tileCache.destroy();
+    		mapView.getModel().mapViewPosition.destroy();
+    		
+			mapView.destroy();
+			AndroidResourceBitmap.clearResourceBitmaps();
+    	
+	}
+	
     public void downloadStyleFile()
     {
-    	styleFile = sdcard+"/opentrail/freemap.xml";
+    	styleFile = sdcard+"/opentrail/freemap_v4.xml";
     	File sf = new File(styleFile);
     	if(!sf.exists())
     	{
     		dfTask = new DownloadTextFilesTask(this,  new String[] 
-    		                                   { "http://www.free-map.org.uk/data/android/freemap.xml" }, 
+    		                                   { "http://www.free-map.org.uk/data/android/freemap_v4.xml" }, 
     		                           new String[] { styleFile }, 
-    		                           "No Freemap style file found. Download?", this, 0);
+    		                           "No Freemap style file (version 4) found. Download?", this, 0);
     		dfTask.setDialogDetails("Downloading...","Downloading style file...");
     		dfTask.confirmAndExecute();
     	}
-    	else if(mapFile!=null)
-    	{
-   			setupMap(new File(mapFile));
-    	}
+    	
     }
     
     public void setupMap(File mf)
     {
-    	try
-    	{
-    	    
-    		mapView.setMapFile(mf);
+    	setupMap(mf,true);
+    }
+    
+    public void setupMap (File mf, boolean addTileLayer)
+    {
+    	
+    		// onStart() from newmapsforge example
+    		
+    		
+    		if(mf.exists())
+    		{
+    			android.util.Log.d("newmapsforge", "FILE WE WANT EXISTS, mapfile=" + mf);	
+    			renderLayer.setMapFile(mf);
+    		
+    		}
+    		else
+    		{
+    			new AlertDialog.Builder(this).setPositiveButton("OK",null).setMessage("can't find mapfile").show();
+    		}
+    		
+    		// add the layer to the map
+    		Log.d("newmapsforge", "adding layer to map");
+    		// done onstart mapView.getLayerManager().getLayers().add(layer);
+    		   		
     		if(!mapSetup)
 			{
-				if(styleFile!=null)
-	    			mapView.setRenderTheme(new File(styleFile));
+				Log.d("newmapsforge", "setting content view");
+	    		
 				setContentView(mapView);
 				
 				mapSetup=true;
 			}
+    		Log.d("newmapsforge", "setting centre");
     		if(this.location!=null)
-				mapView.setCenter(this.location);
+				mapView.getModel().mapViewPosition.setCenter(this.location);
 			else if (initPos!=null)
-				mapView.setCenter(initPos);
-    		mapView.redrawTiles();
-    		loadAnnotationOverlay();
+				mapView.getModel().mapViewPosition.setCenter(initPos);
+
+    	 	
+     		// crashes if no mapfile
+    		if(addTileLayer)
+    		{
+    			overlayHandler.addTileRendererLayer(renderLayer);
+    			Log.d("newmapsforge", "loading annotation overlay");
+        		loadAnnotationOverlay();
+        		overlayHandler.addAllOverlays();	
+    		}
+     		
+    		mapView.invalidate();
+    		renderLayer.requestRedraw(); 
     		
-    	}
-    	catch(FileNotFoundException e)
-    	{
-    		DialogUtils.showDialog(this,"Style and/or map file not found: " + e.getMessage());
-    	}
     }
     
     public void downloadFinished(int id, Object addData)
@@ -505,7 +611,7 @@ public class OpenTrail extends MapActivity implements
                         if(this.location!=null)
                         {
                                 
-                            osgb = this.proj.project(new Point(this.location.getLongitude(),this.location.getLatitude()));
+                            osgb = this.proj.project(new Point(this.location.longitude,this.location.latitude));
                             gsq = new OSRef(osgb.x,osgb.y).toSixFigureString().substring(0,2).toLowerCase();
                         
                             if(gsq.equals((String)addData))
@@ -549,7 +655,7 @@ public class OpenTrail extends MapActivity implements
     {
     	if(this.location!=null)
     	{
-    		downloadMapFile(this.location.getLongitude(),this.location.getLatitude());
+    		downloadMapFile(this.location.longitude,this.location.latitude);
     	}
     	else
     	{
@@ -655,12 +761,12 @@ public class OpenTrail extends MapActivity implements
     			
     			case R.id.inputAnnotationMenuItem:
     				if(this.location!=null)
-    					launchInputAnnotationActivity(this.location.getLatitude(),
-    						this.location.getLongitude());
+    					launchInputAnnotationActivity(this.location.latitude,
+    						this.location.longitude);
     				else
     				{
     				    
-    				    this.location = new GeoPoint(50.9, 1.4);
+    				    this.location = new LatLong(50.9, 1.4);
     				    
     					DialogUtils.showDialog(this,"Location not known yet");
     				}
@@ -687,7 +793,7 @@ public class OpenTrail extends MapActivity implements
     					DialogUtils.showDialog(this,"Location not known");
     				else
     				{
-    					Point p = this.proj.project(new Point(location.getLongitude(),location.getLatitude()));
+    					Point p = this.proj.project(new Point(location.longitude,location.latitude));
     					intent.putExtra("projectedX", p.x);
     					intent.putExtra("projectedY", p.y);
     					startActivityForResult(intent,2);
@@ -728,7 +834,7 @@ public class OpenTrail extends MapActivity implements
     				if(recordingWalkroute)
     				{
     					
-    					dataDisplayer.clearWalkroute();
+    					overlayHandler.removeWalkroute(true);
     					if(mapSetup)
     					{
     					  
@@ -790,18 +896,23 @@ public class OpenTrail extends MapActivity implements
     			case 0:
     				// Loading a new mapfile sets the centre to the centre of the mapfile
     				// so we need to save the old centre if we want the same position (and GPS not present)
-    				GeoPoint currentCentre = mapView.getMapPosition().getMapCenter();
+    				LatLong currentCentre = mapView.getModel().mapViewPosition.getCenter();
     				Bundle extras = i.getExtras();
+    	
     				
     				mapFile = sdcard+"/opentrail/"+extras.getString("mapFile");
     				
     				File mf=new File(mapFile);
     				if(mf.exists())
     				{
-    					setupMap(mf);
-    					mapView.setCenter(currentCentre);
+    					// necessary to stop old cache hanging around which draws tiles from cache, not from new mapfile
+    					Log.d("newmapsforge", "replaceTileLayer()");
+    					replaceTileLayer();
+    					Log.d("newmapsforge", "resetting mapfile to : " + mapFile);
+    					setupMap(mf,true);
+    					mapView.getModel().mapViewPosition.setCenter(currentCentre);
     					gotoMyLocation();
-    					mapView.redrawTiles();
+    					renderLayer.requestRedraw(); 
     				}
     				else
     				{
@@ -815,15 +926,20 @@ public class OpenTrail extends MapActivity implements
     				    boolean isWalkrouteAnnotation = extras.getBoolean("walkrouteAnnotation");
     				    
     					String id=extras.getString("ID"),description=extras.getString("description");
-    					GeoPoint gp = new GeoPoint(extras.getDouble("lat"),extras.getDouble("lon"));
+    					LatLong gp = new LatLong(extras.getDouble("lat"),extras.getDouble("lon"));
     					//Point p = this.proj.project(new Point(extras.getDouble("lon"),extras.getDouble("lat")));
     					Point p = new Point(extras.getDouble("lon"),extras.getDouble("lat"));
     					                 
-    					OverlayItem item = new OverlayItem(gp,(id.equals("0") ? "New annotation":
+    					Marker item = MapsforgeUtil.makeTappableMarker(this, isWalkrouteAnnotation ?
+					           getResources().getDrawable(R.drawable.marker) : 
+					           getResources().getDrawable(R.drawable.annotation) , gp, description);
+    							
+    					/*
+    							gp,(id.equals("0") ? "New annotation":
     							"Annotation #"+id),description);
-    					item.setMarker(ItemizedOverlay.boundCenterBottom(getResources().getDrawable(isWalkrouteAnnotation ?
-    					            R.drawable.marker : R.drawable.annotation)));
-    					dataDisplayer.addIconItem(item);
+    							*/
+    				
+    					mapView.getLayerManager().getLayers().add(item);
     					int idInt = id.equals("0")? -(annCacheMgr.size()+1):Integer.parseInt(id);
     				
     			
@@ -859,7 +975,7 @@ public class OpenTrail extends MapActivity implements
     				POI poi = Shared.pois.getPOIById(Integer.parseInt(extras.getString("osmId")));
     				
     				if(poi!=null)
-    					dataDisplayer.displayPOI(poi);
+    					overlayHandler.setPOI(poi);
     				break;
     				
     			case 3:
@@ -938,8 +1054,8 @@ public class OpenTrail extends MapActivity implements
     						            DialogUtils.showDialog(OpenTrail.this, "Unable to save walk route: error=" + errMsg);
     						        else
     						        {
-    						            dataDisplayer.clearWalkroute();
-    		                            mapView.invalidate();
+    						            overlayHandler.removeWalkroute(true);
+    		                        //    mapView.invalidate();
     		                            DialogUtils.showDialog(OpenTrail.this, "Successfully saved walk route.");
     						        }
     						    }
@@ -967,7 +1083,7 @@ public class OpenTrail extends MapActivity implements
     {
     	if(this.location!=null)
     	{
-    		mapView.setCenter(this.location);
+    		mapView.getModel().mapViewPosition.setCenter(this.location);
     	}
     }
     
@@ -991,8 +1107,9 @@ public class OpenTrail extends MapActivity implements
     
     public void loadAnnotationOverlay()
     {
-    	if(dataDisplayer!=null)
-    		Shared.pois.operateOnAnnotations(dataDisplayer);
+    	if(overlayHandler!=null)
+    		Shared.pois.operateOnAnnotations(overlayHandler);
+    	overlayHandler.requestRedraw();
     }
     
     public Object onRetainNonConfigurationInstance()
@@ -1061,8 +1178,9 @@ public class OpenTrail extends MapActivity implements
     
     public void receiveLocation(double lon, double lat, boolean refresh)
     {	
-    	
-    	GeoPoint p = new GeoPoint(lat,lon);
+    
+    	Log.d("newmapsforge", "receiving location: lon=" + lon + " lat=" + lat);
+    	LatLong p = new LatLong(lat,lon);
 		Point pt = new Point(lon,lat);
 		
 		
@@ -1073,7 +1191,7 @@ public class OpenTrail extends MapActivity implements
 			{
 				Walkroute recordingWalkroute = gpsService.getRecordingWalkroute();
 				if(recordingWalkroute!=null && recordingWalkroute.getPoints().size()!=0)
-					dataDisplayer.showWalkroute(recordingWalkroute);
+					overlayHandler.setWalkroute(recordingWalkroute);
 				
 				
 			}
@@ -1084,7 +1202,7 @@ public class OpenTrail extends MapActivity implements
 				
 		}
 	
-		dataDisplayer.requestRedraw();
+		
 				
 		Point osgb = this.proj.project(pt);
 		String gridsq = new OSRef(osgb.x,osgb.y).toSixFigureString().substring(0,2).toLowerCase();
@@ -1092,9 +1210,11 @@ public class OpenTrail extends MapActivity implements
 		// If the current map file is a grid square map file, and we change grid square,
 		// change the map (or prompt user to download new map). This will not happen if we
 		// are using england.map or wales.map.
+		Log.d("newmapsforge", "curGridsq=" + curGridsq + " gridsq=" + gridsq + " mapFile=" + mapFile);
 		if(!curGridsq.equals(gridsq) && (mapFile==null ||
 		        mapFile.equals(sdcard+"/opentrail/"+curGridsq+".map")))
 		{
+			Log.d("newmapsforge", "YES");
 			curGridsq = gridsq;
 			File mf = new File(sdcard+"/opentrail/"+gridsq+".map");
 			if(!mf.exists())
@@ -1109,16 +1229,17 @@ public class OpenTrail extends MapActivity implements
 				// resetting the map file (e.g. one map file from the preferences, another
 				// from the current location) resets the zoom - so use original zoom from preferences
 				if(readZoom>=0)
-					mapView.getController().setZoom(readZoom);
-				mapView.redrawTiles();
+					mapView.getModel().mapViewPosition.setZoomLevel((byte)readZoom);
+				//mapView.redrawTiles();
+				//renderLayer.requestRedraw();
 			}
 		}
-    	this.location = new GeoPoint(lat,lon);
+    	this.location = new LatLong(lat,lon);
     	if(prefGPSTracking==true)
     	{
     	    
     		if(mapView!=null && mapSetup)
-    			mapView.setCenter(p);
+    			mapView.getModel().mapViewPosition.setCenter(p);
     	}
     	if(prefAutoDownload && poiDeliverer.needNewData(pt))
     	{
@@ -1130,6 +1251,7 @@ public class OpenTrail extends MapActivity implements
     		
     	}
     	
+    	overlayHandler.requestRedraw();
     	alertDisplayMgr.update(pt);
     	
     }
@@ -1177,7 +1299,7 @@ public class OpenTrail extends MapActivity implements
       	walkrouteIdx = idx;
 		Shared.walkroutes.set(idx, walkroute);
     	alertDisplayMgr.setWalkroute(walkroute);
-    	dataDisplayer.showWalkroute(walkroute);
+    	overlayHandler.setWalkroute(walkroute);
     }
     
     public void uploadCachedAnnotations()
@@ -1279,53 +1401,62 @@ public class OpenTrail extends MapActivity implements
     	}
     }
     
-    public boolean onTouch(View mv, MotionEvent ev)
+    // I don't think there's a way to clear the cache (when changing map files) without doing this
+    public void replaceTileLayer()
     {
     	
-    	boolean retcode=false;
     	
-    	switch(ev.getAction())
-    	{
-    		case MotionEvent.ACTION_DOWN:
-    			xDown = (int)ev.getX();
-    			yDown = (int)ev.getY();
-    			touchTime = System.currentTimeMillis();
-    			
-    			break;
-    		case MotionEvent.ACTION_UP:
-    			final int x = (int)ev.getX(), y=(int)ev.getY();
-              
-    			if(Math.abs(x-xDown)<10 && Math.abs(y-yDown)<10 && System.currentTimeMillis()-touchTime>=100)
-    			{
-    			    
-    				// get ontouch location
-    				new AlertDialog.Builder(this).setMessage("Add an annotation at this location?").
-    					setNegativeButton("Cancel",null).
-    					setPositiveButton("OK", new DialogInterface.OnClickListener()
-    					{
-    						public void onClick(DialogInterface i, int which)
-    						{
-    							GeoPoint p = mapView.getProjection().fromPixels(x,y);
-    							launchInputAnnotationActivity(p.getLatitude(),p.getLongitude());
-    						}
-    					}).show();
-    				
-    				retcode=true;
-    			}
-    			touchTime = 0;
-    			xDown = yDown = -256;
-    			break;
-    	}
-    	return retcode;
     	
+    	tileCache.destroy();
+    	overlayHandler.removeAllOverlays(false);  	
+    	renderLayer.onDestroy();
+    	
+    	tileCache = AndroidUtil.createTileCache
+				(this, "mapcache",
+					mapView.getModel().displayModel.getTileSize(),
+					1f,
+					mapView.getModel().frameBufferModel.getOverdrawFactor());
+    	renderLayer = getTileRendererLayer
+				(tileCache, mapView.getModel().mapViewPosition, false, true,
+					AndroidGraphicFactory.INSTANCE);
+    	renderLayer.setXmlRenderTheme(renderTheme);
+    	
+		
+    	// overlayHandler.addTileRendererLayer() and addAllOverlays() done in setupMap() (called after this) so not done here
     }
-    
-    
+   
+    public TileRendererLayer getTileRendererLayer(TileCache tileCache, MapViewPosition tilePosition, boolean transparent, boolean labels,
+			AndroidGraphicFactory factory)
+    {
+
+    	return new TileRendererLayer(tileCache, tilePosition, transparent, labels, factory)
+    	{
+    		LatLong tp;
+    	
+    		public boolean onLongPress(LatLong tapPos, org.mapsforge.core.model.Point layerXY, 
+								org.mapsforge.core.model.Point xy)
+    		{
+    			tp = tapPos;
+    			
+    			new AlertDialog.Builder(OpenTrail.this).setMessage("Add an annotation at this location?").
+					setNegativeButton("Cancel",null).
+					setPositiveButton("OK", new DialogInterface.OnClickListener()
+					{
+						public void onClick(DialogInterface i, int which)
+						{
+							OpenTrail.this.launchInputAnnotationActivity(tp.latitude, tp.longitude);
+						}
+					}).show();
+		
+    			return true;
+    		}
+		};
+    }
     
     public void about()
     {
       
-    	DialogUtils.showDialog(this,"OpenTrail 0.1-beta. Uses OpenStreetMap data, copyright 2013 " +
+    	DialogUtils.showDialog(this,"OpenTrail 0.2-buggy-pre-alpha, using Mapsforge 0.5. Uses OpenStreetMap data, copyright 2013 " +
     											"OpenStreetMap contributors, Open Database Licence. Uses " +
     											"Ordnance Survey OpenData LandForm Panorama contours, Crown Copyright." +
     											"Person icon taken from the osmdroid project. Annotation icon based on " +
@@ -1335,15 +1466,15 @@ public class OpenTrail extends MapActivity implements
     public void onSaveInstanceState(Bundle state)
     {
         
-      	GeoPoint gp = mapView.getMapPosition().getMapCenter();
-    	state.putDouble("lat", gp.getLatitude());
-    	state.putDouble("lon", gp.getLongitude());
-    	state.putInt("zoom",mapView.getMapPosition().getZoomLevel());
+      	LatLong gp = mapView.getModel().mapViewPosition.getCenter();
+    	state.putDouble("lat", gp.latitude);
+    	state.putDouble("lon", gp.longitude);
+    	state.putInt("zoom",mapView.getModel().mapViewPosition.getZoomLevel());
     	state.putString("mapFile",mapFile);
     	state.putInt("walkrouteIdx", walkrouteIdx);
     	state.putBoolean("recordingWalkroute", recordingWalkroute);
     	state.putBoolean("waitingForNewPOIData",waitingForNewPOIData);
      	state.putInt("recordingWalkrouteId", recordingWalkrouteId);
      	
-    }
+    }   
 }

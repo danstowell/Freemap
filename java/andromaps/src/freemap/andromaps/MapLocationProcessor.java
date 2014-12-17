@@ -3,19 +3,19 @@ package freemap.andromaps;
 
 
 
-import org.mapsforge.core.GeoPoint;
 
 
-import android.content.BroadcastReceiver;
+
+
 import android.os.Bundle;
 import android.graphics.drawable.Drawable;
 import android.content.Context;
 import android.util.Log;
 import android.widget.Toast;
 import android.location.LocationProvider;
-import android.content.Intent;
 
 
+import org.mapsforge.core.model.LatLong;
 
 // Role: to receive a location and manage location provider updates, show the "my location" marker,
 // manage "waiting for GPS" dialogs and forward the location on to a LocationReceiver which can do 
@@ -33,10 +33,10 @@ public class MapLocationProcessor
 	
 	public interface LocationDisplayer
 	{
-		public void addLocationMarker(GeoPoint p);
-		public void showLocationMarker();
-		public void moveLocationMarker(GeoPoint p);
-		public void hideLocationMarker();
+		public void setLocationMarker(LatLong p);
+		public void addLocationMarker();
+		public void moveLocationMarker(LatLong p);
+		public void removeLocationMarker();
 		public boolean isLocationMarker();
 	}
 	
@@ -69,7 +69,7 @@ public class MapLocationProcessor
 			
 			if(displayer.isLocationMarker())
 			{
-				displayer.showLocationMarker();
+				displayer.addLocationMarker();
 			}
 		}
 	}
@@ -80,7 +80,7 @@ public class MapLocationProcessor
 		
 		if(displayer.isLocationMarker())
 		{
-			displayer.hideLocationMarker();
+			displayer.removeLocationMarker();
 		}
 		isUpdating=false;
 		cancelGPSWaiting();
@@ -94,10 +94,10 @@ public class MapLocationProcessor
 	public void onLocationChanged(double lon, double lat, boolean refresh)
 	{
 		Log.d("OpenTrail", "broadcastreceiver: location=" + lon+","+lat);
-		GeoPoint p = new GeoPoint(lat,lon);
+		LatLong p = new LatLong(lat,lon);
 		
 		if(!displayer.isLocationMarker())
-			displayer.addLocationMarker(p);
+			displayer.setLocationMarker(p);
 		else
 			displayer.moveLocationMarker(p);
 		
@@ -138,13 +138,13 @@ public class MapLocationProcessor
 	private void showLocationMarker()
 	{
 		if(displayer.isLocationMarker())
-			displayer.showLocationMarker();
+			displayer.addLocationMarker();
 	}
 
 	private void hideLocationMarker()
 	{
 		if(displayer.isLocationMarker())
-			displayer.hideLocationMarker();
+			displayer.removeLocationMarker();
 	} 
    
     public void showGpsWaiting(String msg)
